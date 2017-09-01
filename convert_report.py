@@ -27,29 +27,45 @@
 """Converts old-style column-formatted reports into OSD files"""
 
 import enum
-import pyexcel_ods3
 import pprint
 import sys
 
+import dateutil.parser
+import pyexcel_ods3
+
 
 class ReportFile:
-    def __init__(self, path, field_str=None):
+    def __init__(self, path):
         self._path = path
         self._field_offset = 0
         self._fields = {}
 
-    def add_field(self, field_id, length):
+    def add_field(self, field_id, length, field_type='str'):
         """ Adds a field length to the configuration."""
-        self._fields[field_id] = (self._field_offset, self._field_offset
-                                  + length)
+        self._fields[field_id] = (self._field_offset,
+                                  self._field_offset + length,
+                                  field_type)
         self._field_offset += length
         # print(self._fields)
 
     def read_line(self, line):
         record = {}
         for field_id, interval in self._fields.items():
-            start, end = interval
-            record[field_id] = line[start:end].rstrip()
+            start, end, field_type = interval
+            print(interval)
+            data = line[start:end].rstrip()
+
+            if field_type == 'str':
+                record[field_id] = data
+            elif field_type == 'number':
+                try:
+                    number = int(data)
+                except ValueError:
+                    number = float(data)
+
+                record[field_id] = number
+            elif field_type == 'date':
+                record[field_id] = dateutil.parser.parse(data)
         return record
 
     def read(self):
@@ -84,8 +100,18 @@ class ArgumentReader:
 
             if self._state == ArgumentReaderStates.READ_INPUT_FLAGS:
                 if arg == '-f':
+                    field_type = 'str'
                     self._state = ArgumentReaderStates.READ_FIELD_ID
                     # print("reading fields")
+
+                if arg == '-fn':
+                    field_type = 'number'
+                    self._state = ArgumentReaderStates.READ_FIELD_ID
+
+                if arg == '-fd':
+                    field_type = 'date'
+                    self._state = ArgumentReaderStates.READ_FIELD_ID
+
             elif (self._state == ArgumentReaderStates.INITAL
                     or self._state == ArgumentReaderStates.READ_INPUT_FLAGS):
 
@@ -103,7 +129,7 @@ class ArgumentReader:
 
             elif self._state == ArgumentReaderStates.READ_FIELD_LEN:
                 field_len = int(arg)
-                report.add_field(field_id, field_len)
+                report.add_field(field_id, field_len, field_type=field_type)
                 self._state = ArgumentReaderStates.READ_INPUT_FLAGS
 
         if not len(self.reports):
